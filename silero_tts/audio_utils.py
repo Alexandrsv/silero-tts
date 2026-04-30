@@ -23,18 +23,9 @@ def change_speed(audio: torch.Tensor, speed: float) -> torch.Tensor:
     ).squeeze()
 
 def generate_audio(model, text: str, speaker: str, sample_rate: int, device: str = "cpu",
-                 put_accent: bool = True, put_yo: bool = True, speed: float = 1.0):
-    # Apply SSML prosody tag for speed if not default
-    tts_text = text
-    if speed != 1.0:
-        tts_text = f'<prosody rate="{speed}">{text}</prosody>'
-    audio = model.apply_tts(text=tts_text, speaker=speaker, sample_rate=sample_rate,
+                 put_accent: bool = True, put_yo: bool = True):
+    audio = model.apply_tts(text=text, speaker=speaker, sample_rate=sample_rate,
                            put_accent=put_accent, put_yo=put_yo)
-    # Fallback: if SSML not supported, resample
-    if audio.shape[0] == 0:
-        audio = model.apply_tts(text=text, speaker=speaker, sample_rate=sample_rate,
-                               put_accent=put_accent, put_yo=put_yo)
-        return change_speed(audio, speed)
     return audio
 
 def generate_long_text(
