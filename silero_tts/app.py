@@ -14,14 +14,37 @@ config = TTSConfig()
 MAX_CHARS = 140
 ACCENT_METHODS = ["model", "silero-stress", "manual", "none"]
 
+# Check available normalizers
+NORMALIZER_METHODS = ["none"]
+try:
+    from ru_normalizr import Normalizer as RUNormalizr, NormalizeOptions
+    NORMALIZER_METHODS.append("ru-normalizr")
+    _ru_normalizr = RUNormalizr(NormalizeOptions.tts())
+    logger.info("ru-normalizr available")
+except ImportError:
+    _ru_normalizr = None
+    logger.info("ru-normalizr not installed")
+
 AVAILABLE_DEVICES = ["cpu"]
 if __import__('torch').cuda.is_available():
     AVAILABLE_DEVICES.append("cuda")
 
-def preview_stress(text, accent_method):
+def normalize_text(text, normalizer_method):
+    if normalizer_method == "none" or not text:
+        return text
+    try:
+        if normalizer_method == "ru-normalizr" and _ru_normalizr:
+            return _ru_normalizr.normalize(text)
+    except Exception as e:
+        logger.warning(f"Normalization failed ({normalizer_method}): {e}")
+    return text
+
+
+def preview_stress(text, accent_method, normalizer_method):
     if not text or not text.strip():
         return "", "Empty text"
     try:
+        text = normalize_text(text, normalizer_method)
         if accent_method == "silero-stress":
             processed = apply_stress(text, method="silero-stress")
             return processed, f"Preview: {len(processed)} chars"
@@ -34,10 +57,12 @@ def preview_stress(text, accent_method):
     except Exception as e:
         return text, f"Error: {str(e)}"
 
-def tts_generate(text, speaker, sample_rate, accent_method, device, audio_format):
+def tts_generate(text, speaker, sample_rate, accent_method, device, audio_format, normalizer_method):
     if not text or not text.strip():
         return None, "Empty text", text
-    
+
+    text = normalize_text(text, normalizer_method)
+
     logger.info(f"Generating: {len(text)} chars, speaker={speaker}, sr={sample_rate}, accent={accent_method}, device={device}")
     
     try:
@@ -98,6 +123,7 @@ def create_app():
                     with gr.Column(scale=1):
                         gr.Markdown("### Processing")
                         accent_dropdown = gr.Dropdown(choices=ACCENT_METHODS, value="model", label="Accent Method", container=False)
+                        normalizer_dropdown = gr.Dropdown(choices=NORMALIZER_METHODS, value=NORMALIZER_METHODS[-1] if len(NORMALIZER_METHODS) > 1 else "none", label="Text Normalizer", container=False)
                         device_dropdown = gr.Dropdown(choices=AVAILABLE_DEVICES, value=config.device, label="Device", container=False)
 
                     with gr.Column(scale=1):
@@ -116,13 +142,13 @@ def create_app():
         
         preview_btn.click(
             fn=preview_stress,
-            inputs=[text_input, accent_dropdown],
+            inputs=[text_input, accent_dropdown, normalizer_dropdown],
             outputs=[processed_text_output, status]
         )
         
         generate_btn.click(
             fn=tts_generate,
-            inputs=[text_input, speaker_dropdown, sample_rate_dropdown, accent_dropdown, device_dropdown, format_dropdown],
+            inputs=[text_input, speaker_dropdown, sample_rate_dropdown, accent_dropdown, device_dropdown, format_dropdown, normalizer_dropdown],
             outputs=[audio_output, status, processed_text_output]
         )
     return demo
