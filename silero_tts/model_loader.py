@@ -1,11 +1,13 @@
 import torch
 import os
 import logging
+import threading
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 _model_cache = {}
+_model_cache_lock = threading.Lock()
 
 MODEL_URLS = {
     "v5_ru": "https://models.silero.ai/models/tts/ru/v5_ru.pt",
@@ -41,20 +43,23 @@ def load_model(
         device = "cuda" if torch.cuda.is_available() else "cpu"
     
     cache_key = f"{model_id}_{language}_{device}"
-    if cache_key in _model_cache:
-        logger.info(f"Using cached model {cache_key}")
-        return _model_cache[cache_key]
     
-    model_path = _download_model(model_id, models_dir)
-    logger.info(f"Loading model from {model_path} onto {device}")
-    
-    try:
-        model = torch.package.PackageImporter(model_path).load_pickle("tts_models", "model")
-        model.to(device)
-        # Example texts from Silero docs
-        example_text = "В недрах тундры выдры в гетрах тырят в вёдра ядра кедров."
-        _model_cache[cache_key] = (model, example_text)
-        return model, example_text
-    except Exception as e:
-        logger.error(f"Failed to load model: {e}")
-        raise
+    with _model_cache_lock:
+        if cache_key in _model_cache:
+            logger.info(f"Using cached model {cache_key}")
+            return _model_cache[cache_key]
+        
+        model_path = _download_model(model_id, models_dir)
+        logger.info(f"Loading model from {model_path} onto {device}")
+        
+        try:
+            importer = torch.package.PackageImporter(model_path)
+            model = importer.load_pickle("tts_models", "model")
+            model.to(device)
+            # Example texts from Silero docs
+            example_text = "В недрах тундры выдры в гетрах тырят в вёдра ядра кедров."
+            _model_cache[cache_key] = (model, example_text)
+            return model, example_text
+        except Exception as e:
+            logger.error(f"Failed to load model: {e}")
+            raise
