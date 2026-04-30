@@ -10,14 +10,13 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 config = TTSConfig()
-model, _ = load_model(
-    model_id=config.model_id,
-    language=config.language,
-    device=config.device
-)
 
 MAX_CHARS = 140
 ACCENT_METHODS = ["model", "silero-stress", "manual", "none"]
+
+AVAILABLE_DEVICES = ["cpu"]
+if __import__('torch').cuda.is_available():
+    AVAILABLE_DEVICES.append("cuda")
 
 def preview_stress(text, accent_method):
     if not text or not text.strip():
@@ -35,13 +34,19 @@ def preview_stress(text, accent_method):
     except Exception as e:
         return text, f"Error: {str(e)}"
 
-def tts_generate(text, speaker, sample_rate, accent_method):
+def tts_generate(text, speaker, sample_rate, accent_method, device, audio_format):
     if not text or not text.strip():
         return None, "Empty text", text
     
-    logger.info(f"Generating: {len(text)} chars, speaker={speaker}, sr={sample_rate}, accent={accent_method}")
+    logger.info(f"Generating: {len(text)} chars, speaker={speaker}, sr={sample_rate}, accent={accent_method}, device={device}")
     
     try:
+        model, _ = load_model(
+            model_id=config.model_id,
+            language=config.language,
+            device=device
+        )
+        
         processed_text = text
         put_accent = True
         if accent_method == "silero-stress":
@@ -55,16 +60,17 @@ def tts_generate(text, speaker, sample_rate, accent_method):
         
         if len(processed_text) > MAX_CHARS:
             logger.info("Using long text generation")
-            audio = generate_long_text(model, processed_text, speaker, int(sample_rate), config.device, put_accent=put_accent)
+            audio = generate_long_text(model, processed_text, speaker, int(sample_rate), device, put_accent=put_accent)
         else:
             logger.info("Using single text generation")
-            audio = generate_audio(model, processed_text, speaker, int(sample_rate), config.device, put_accent=put_accent)
+            audio = generate_audio(model, processed_text, speaker, int(sample_rate), device, put_accent=put_accent)
         
         logger.info(f"Generated {len(audio)} samples")
         
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+        suffix = ".mp3" if audio_format == "mp3" else ".wav"
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
             path = f.name
-        save_audio(audio, int(sample_rate), path)
+        save_audio(audio, int(sample_rate), path, fmt=audio_format)
         logger.info(f"Saved to {path}")
         return path, f"OK: {len(audio)} samples", processed_text
     except Exception as e:
@@ -82,12 +88,14 @@ def create_app():
         with gr.Row():
             with gr.Column(scale=2):
                 text_input = gr.Textbox(value=DEFAULT_TEXT, label="Text", lines=3)
-                with gr.Row():
-                    speaker_dropdown = gr.Dropdown(choices=config.speakers, value=config.default_speaker, label="Speaker")
-                    sample_rate_dropdown = gr.Dropdown(choices=AVAILABLE_SAMPLE_RATES, value=config.sample_rate, label="Sample Rate")
-                with gr.Row():
-                    speed_slider = gr.Slider(minimum=0.5, maximum=4.0, value=1.0, step=0.1, label="Playback Speed (x)")
-                    accent_dropdown = gr.Dropdown(choices=ACCENT_METHODS, value="model", label="Accent Method")
+            with gr.Row():
+                speaker_dropdown = gr.Dropdown(choices=config.speakers, value=config.default_speaker, label="Speaker")
+                sample_rate_dropdown = gr.Dropdown(choices=AVAILABLE_SAMPLE_RATES, value=config.sample_rate, label="Sample Rate")
+            with gr.Row():
+                device_dropdown = gr.Dropdown(choices=AVAILABLE_DEVICES, value=config.device, label="Device")
+                accent_dropdown = gr.Dropdown(choices=ACCENT_METHODS, value="model", label="Accent Method")
+            with gr.Row():
+                format_dropdown = gr.Dropdown(choices=["wav", "mp3"], value="mp3", label="Audio Format")
                 with gr.Row():
                     preview_btn = gr.Button("Preview Stress", variant="secondary")
                     generate_btn = gr.Button("Generate", variant="primary")
@@ -105,7 +113,7 @@ def create_app():
         
         generate_btn.click(
             fn=tts_generate,
-            inputs=[text_input, speaker_dropdown, sample_rate_dropdown, accent_dropdown],
+            inputs=[text_input, speaker_dropdown, sample_rate_dropdown, accent_dropdown, device_dropdown, format_dropdown],
             outputs=[audio_output, status, processed_text_output]
         )
     return demo

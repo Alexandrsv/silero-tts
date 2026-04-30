@@ -37,13 +37,13 @@ def load_model(
         models_dir = os.path.join(os.path.dirname(__file__), "..", "models")
     models_dir = os.path.abspath(models_dir)
     
-    cache_key = f"{model_id}_{language}"
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+    
+    cache_key = f"{model_id}_{language}_{device}"
     if cache_key in _model_cache:
         logger.info(f"Using cached model {cache_key}")
         return _model_cache[cache_key]
-    
-    if device is None:
-        device = "cuda" if torch.cuda.is_available() else "cpu"
     
     model_path = _download_model(model_id, models_dir)
     logger.info(f"Loading model from {model_path} onto {device}")

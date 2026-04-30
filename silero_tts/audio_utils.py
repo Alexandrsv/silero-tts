@@ -1,13 +1,27 @@
 import torch
 import os
 import numpy as np
+from scipy.io import wavfile
 from .text_chunker import split_text
 
-def save_audio(audio: torch.Tensor, sample_rate: int, path: str) -> str:
-    from scipy.io import wavfile
+def save_audio(audio: torch.Tensor, sample_rate: int, path: str, fmt: str = "wav") -> str:
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     audio_np = audio.cpu().numpy()
-    wavfile.write(path, sample_rate, (audio_np * 32767).astype("int16"))
+    audio_int16 = (audio_np * 32767).astype("int16")
+    
+    if fmt == "mp3":
+        try:
+            from pydub import AudioSegment
+            wav_path = path.replace('.mp3', '.tmp.wav')
+            wavfile.write(wav_path, sample_rate, audio_int16)
+            audio_segment = AudioSegment.from_wav(wav_path)
+            audio_segment.export(path, format="mp3", bitrate="192k")
+            os.remove(wav_path)
+        except Exception:
+            path = path.replace('.mp3', '.wav')
+            wavfile.write(path, sample_rate, audio_int16)
+    else:
+        wavfile.write(path, sample_rate, audio_int16)
     return path
 
 def change_speed(audio: torch.Tensor, speed: float) -> torch.Tensor:
