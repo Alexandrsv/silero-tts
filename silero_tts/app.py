@@ -136,6 +136,10 @@ def tts_generate(text, speaker, sample_rate, accent_method, device, audio_format
         
         logger.info(f"Generated {len(audio)} samples")
         
+        # Compute duration
+        duration_seconds = len(audio) / int(sample_rate)
+        duration_str = f"{int(duration_seconds // 3600):02d}:{int((duration_seconds % 3600) // 60):02d}:{int(duration_seconds % 60):02d}"
+        
         # Progress for saving
         progress(0.9, desc="Saving audio...")
         suffix = ".mp3" if audio_format == "mp3" else ".wav"
@@ -146,7 +150,7 @@ def tts_generate(text, speaker, sample_rate, accent_method, device, audio_format
         logger.info(f"Saved to {path}")
         _delayed_cleanup(path)
         progress(1.0, desc="Complete!")
-        return path, f"OK: {len(audio)} samples", processed_text
+        return path, f"OK: {len(audio)} samples", processed_text, duration_str
     except Exception as e:
         import traceback
         error_msg = f"Error: {str(e)}"
@@ -188,6 +192,7 @@ def create_app():
 
             with gr.Column(scale=2):
                 audio_output = gr.Audio(label="Generated Audio", type="filepath")
+                duration_output = gr.Textbox(label="Duration", interactive=False)
         
         preview_btn.click(
             fn=preview_stress,
@@ -198,7 +203,7 @@ def create_app():
         generate_btn.click(
             fn=tts_generate,
             inputs=[text_input, speaker_dropdown, sample_rate_dropdown, accent_dropdown, device_dropdown, format_dropdown, normalizer_dropdown],
-            outputs=[audio_output, status, processed_text_output]
+            outputs=[audio_output, status, processed_text_output, duration_output]
         )
     return demo
 
