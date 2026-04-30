@@ -2,7 +2,7 @@ import gradio as gr
 import torch
 from .config import TTSConfig, AVAILABLE_SAMPLE_RATES, DEFAULT_TEXT
 from .model_loader import load_model
-from .audio_utils import generate_audio, save_audio
+from .audio_utils import generate_audio, generate_long_text, save_audio
 import tempfile
 import os
 
@@ -13,12 +13,17 @@ model, _ = load_model(
     device=config.device
 )
 
+MAX_CHARS = 140
+
 def tts_generate(text, speaker, sample_rate):
     if not text.strip():
         return None, "Empty text"
     try:
-        audio = generate_audio(model, text, speaker, int(sample_rate), config.device)
-        # save to temp file
+        if len(text) > MAX_CHARS:
+            audio = generate_long_text(model, text, speaker, int(sample_rate), config.device)
+        else:
+            audio = generate_audio(model, text, speaker, int(sample_rate), config.device)
+        
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
             path = f.name
         save_audio(audio, int(sample_rate), path)
