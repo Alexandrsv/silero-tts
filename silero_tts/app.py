@@ -75,8 +75,10 @@ def tts_generate(text, speaker, sample_rate, accent_method):
         return None, error_msg, text
 
 def create_app():
-    with gr.Blocks(title="Silero TTS", js=AUDIO_JS) as demo:
+    with gr.Blocks(title="Silero TTS") as demo:
         gr.Markdown("# Silero TTS - Russian")
+        gr.Markdown("Speed slider controls audio playback rate (0.5x = slow, 4x = fast)")
+        
         with gr.Row():
             with gr.Column(scale=2):
                 text_input = gr.Textbox(value=DEFAULT_TEXT, label="Text", lines=3)
@@ -92,8 +94,7 @@ def create_app():
             
             with gr.Column(scale=1):
                 processed_text_output = gr.Textbox(label="Processed Text (with stress marks)", lines=3, interactive=False)
-                audio_output = gr.Audio(label="Generated Audio", type="filepath", elem_id="audio-player")
-                speed_html = gr.HTML(SPEED_CONTROL_HTML)
+                audio_output = gr.Audio(label="Generated Audio", type="filepath")
                 status = gr.Textbox(label="Status", interactive=False, lines=2)
         
         preview_btn.click(
@@ -108,44 +109,6 @@ def create_app():
             outputs=[audio_output, status, processed_text_output]
         )
     return demo
-
-# JavaScript to control audio playback speed
-AUDIO_JS = """
-function() {
-    // Wait for audio element and speed slider
-    function setupSpeedControl() {
-        const audio = document.querySelector('#audio-player audio');
-        const slider = document.querySelector('input[aria-label="Playback Speed (x)"]');
-        if (!audio || !slider) return;
-        
-        slider.addEventListener('input', (e) => {
-            audio.playbackRate = parseFloat(e.target.value);
-        });
-        
-        // Update slider when audio source changes
-        const observer = new MutationObserver(() => {
-            audio.playbackRate = parseFloat(slider.value);
-        });
-        observer.observe(audio, { attributes: true, attributeFilter: ['src'] });
-    }
-    
-    // Run on load and periodically check
-    setupSpeedControl();
-    setInterval(setupSpeedControl, 1000);
-}
-"""
-
-SPEED_CONTROL_HTML = """
-<script>
-// Backup: direct control if JS in Blocks doesn't work
-document.addEventListener('input', function(e) {
-    if (e.target.getAttribute('aria-label') === 'Playback Speed (x)') {
-        const audio = document.querySelector('#audio-player audio');
-        if (audio) audio.playbackRate = parseFloat(e.target.value);
-    }
-});
-</script>
-"""
 
 if __name__ == "__main__":
     logger.info(f"Starting Silero TTS app - Model: {config.model_id}, Device: {config.device}")
