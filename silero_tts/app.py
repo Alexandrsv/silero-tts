@@ -84,26 +84,35 @@ def create_app():
     with gr.Blocks(title="Silero TTS") as demo:
         gr.Markdown("# Silero TTS - Russian")
         gr.Markdown("Speed slider controls audio playback rate (0.5x = slow, 4x = fast)")
-        
+
         with gr.Row():
-            with gr.Column(scale=2):
-                text_input = gr.Textbox(value=DEFAULT_TEXT, label="Text", lines=3)
-            with gr.Row():
-                speaker_dropdown = gr.Dropdown(choices=config.speakers, value=config.default_speaker, label="Speaker")
-                sample_rate_dropdown = gr.Dropdown(choices=AVAILABLE_SAMPLE_RATES, value=config.sample_rate, label="Sample Rate")
-            with gr.Row():
-                device_dropdown = gr.Dropdown(choices=AVAILABLE_DEVICES, value=config.device, label="Device")
-                accent_dropdown = gr.Dropdown(choices=ACCENT_METHODS, value="model", label="Accent Method")
-            with gr.Row():
-                format_dropdown = gr.Dropdown(choices=["wav", "mp3"], value="mp3", label="Audio Format")
+            with gr.Column(scale=3):
+                text_input = gr.Textbox(value=DEFAULT_TEXT, label="Text", lines=5)
+
                 with gr.Row():
-                    preview_btn = gr.Button("Preview Stress", variant="secondary")
-                    generate_btn = gr.Button("Generate", variant="primary")
-            
-            with gr.Column(scale=1):
+                    with gr.Column(scale=1):
+                        gr.Markdown("### Voice")
+                        speaker_dropdown = gr.Dropdown(choices=config.speakers, value=config.default_speaker, label="Speaker", container=False)
+                        sample_rate_dropdown = gr.Dropdown(choices=AVAILABLE_SAMPLE_RATES, value=config.sample_rate, label="Sample Rate", container=False)
+
+                    with gr.Column(scale=1):
+                        gr.Markdown("### Processing")
+                        accent_dropdown = gr.Dropdown(choices=ACCENT_METHODS, value="model", label="Accent Method", container=False)
+                        device_dropdown = gr.Dropdown(choices=AVAILABLE_DEVICES, value=config.device, label="Device", container=False)
+
+                    with gr.Column(scale=1):
+                        gr.Markdown("### Output")
+                        format_dropdown = gr.Dropdown(choices=["wav", "mp3"], value="mp3", label="Audio Format", container=False)
+
+                with gr.Row():
+                    preview_btn = gr.Button("Preview Stress", variant="secondary", scale=1)
+                    generate_btn = gr.Button("Generate", variant="primary", scale=2)
+
                 processed_text_output = gr.Textbox(label="Processed Text (with stress marks)", lines=3, interactive=False)
-                audio_output = gr.Audio(label="Generated Audio", type="filepath")
                 status = gr.Textbox(label="Status", interactive=False, lines=2)
+
+            with gr.Column(scale=2):
+                audio_output = gr.Audio(label="Generated Audio", type="filepath")
         
         preview_btn.click(
             fn=preview_stress,
