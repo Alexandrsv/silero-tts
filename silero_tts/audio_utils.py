@@ -55,15 +55,41 @@ def generate_long_text(
         raise ValueError("No audio generated")
     return torch.cat(audio_parts)
 
+def _split_by_tokens(text: str, max_tokens: int = 1800) -> list:
+    """Split text into chunks ≤ max_tokens using BERT tokenizer."""
+    try:
+        from transformers import AutoTokenizer
+        tokenizer = AutoTokenizer.from_pretrained("DeepPavlov/rubert-base-cased")
+        words = text.split()
+        chunks = []
+        current = []
+        current_tokens = 0
+        for word in words:
+            token_count = len(tokenizer.tokenize(word))
+            if current_tokens + token_count > max_tokens and current:
+                chunks.append(" ".join(current))
+                current = [word]
+                current_tokens = token_count
+            else:
+                current.append(word)
+                current_tokens += token_count
+        if current:
+            chunks.append(" ".join(current))
+        return chunks
+    except Exception:
+        # fallback: rough estimate ~1.5 tokens per word for Russian
+        words = text.split()
+        max_words = max_tokens // 2
+        return [" ".join(words[i:i+max_words]) for i in range(0, len(words), max_words)]
+
 def apply_stress(text: str, method: str = "model"):
     if method == "silero-stress":
         try:
             from silero_stress import load_accentor
             accentor = load_accentor()
-            return accentor(text)
+            chunks = _split_by_tokens(text)
+            return " ".join(accentor(c) for c in chunks)
         except Exception as e:
             print(f"Silero Stress failed: {e}, falling back to manual")
             return text
-    return text
-    # 'model' and 'manual' and 'none' - return as is, model handles it
     return text
