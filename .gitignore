@@ -9,3 +9,5 @@ __pycache__/
 *.wav
 *.mp3
 .gradle/
+gradio.log
+text.txt
