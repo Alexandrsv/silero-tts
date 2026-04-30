@@ -30,21 +30,21 @@ def generate_audio(model, text: str, speaker: str, sample_rate: int, device: str
 
 def generate_long_text(
     model, text: str, speaker: str, sample_rate: int, device: str = "cpu",
-    max_chars: int = 140, put_accent: bool = True, put_yo: bool = True, speed: float = 1.0
+    max_chars: int = 140, put_accent: bool = True, put_yo: bool = True
 ) -> torch.Tensor:
     chunks = split_text(text, max_chars=max_chars)
     if len(chunks) == 1:
         return generate_audio(model, chunks[0], speaker, sample_rate, device,
-                            put_accent, put_yo, speed)
+                            put_accent, put_yo)
     audio_parts = []
-    silence_samples = int(0.12 * sample_rate)
-    silence = torch.zeros(silence_samples)
+    silence_len = int(0.12 * sample_rate)
+    silence = torch.zeros(silence_len)
     for i, chunk in enumerate(chunks):
         if not chunk.strip():
             continue
         try:
             audio = generate_audio(model, chunk, speaker, sample_rate, device,
-                                  put_accent, put_yo, speed)
+                                  put_accent, put_yo)
             audio_parts.append(audio)
             if i < len(chunks) - 1:
                 audio_parts.append(silence)
