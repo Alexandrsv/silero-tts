@@ -20,7 +20,36 @@ try:
 except Exception as e:
     logging.getLogger(__name__).warning(f"Could not set fd limit: {e}")
 
-logging.basicConfig(level=logging.INFO)
+import sys
+
+
+class ColoredFormatter(logging.Formatter):
+    COLORS = {
+        "DEBUG": "\033[36m",
+        "INFO": "\033[32m",
+        "WARNING": "\033[33m",
+        "ERROR": "\033[31m",
+        "CRITICAL": "\033[35m",
+    }
+    RESET = "\033[0m"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.force_color = getattr(sys.stderr, "isatty", lambda: False)()
+
+    def format(self, record):
+        if self.force_color or hasattr(sys.stdout, "isatty") and sys.stdout.isatty():
+            color = self.COLORS.get(record.levelname, self.RESET)
+            record.levelname = f"{color}{record.levelname}{self.RESET}"
+        return super().format(record)
+
+
+handler = logging.StreamHandler()
+handler.setFormatter(ColoredFormatter("%(levelname)s:%(name)s:%(message)s"))
+logging.basicConfig(level=logging.INFO, handlers=[handler])
+for logger_name in ["httpx", "gradio"]:
+    logging.getLogger(logger_name).setLevel(logging.WARNING)
+
 logger = logging.getLogger(__name__)
 
 _temp_files = []
