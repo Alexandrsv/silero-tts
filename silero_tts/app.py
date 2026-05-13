@@ -10,6 +10,7 @@ import glob
 import threading
 import time
 import resource
+import re
 
 # Increase file descriptor limit
 try:
@@ -21,6 +22,47 @@ except Exception as e:
     logging.getLogger(__name__).warning(f"Could not set fd limit: {e}")
 
 import sys
+
+
+# Patch Gradio's compiled JS to extend the audio playback speed range
+# from [0.5, 1, 1.5, 2] to [0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4].
+# This modifies the vendored frontend asset at runtime so that the native
+# speed button in gr.Audio cycles through 8 speeds instead of 4.
+# The patch is re-applied on every startup to survive Gradio reinstalls.
+_EXTENDED_SPEEDS = "[.5,1,1.5,2,2.5,3,3.5,4]"
+_ORIGINAL_SPEEDS_PAT = re.compile(r"\[\.5,1,1\.5,2\]")
+
+
+def _patch_gradio_playback_speeds():
+    assets_dir = os.path.join(os.path.dirname(gr.__file__), "templates", "frontend", "assets")
+    if not os.path.isdir(assets_dir):
+        logger.warning("Gradio assets directory not found, skipping playback speed patch")
+        return False
+
+    patched = False
+    for fname in os.listdir(assets_dir):
+        if not fname.endswith(".js"):
+            continue
+        fpath = os.path.join(assets_dir, fname)
+        try:
+            data = open(fpath).read()
+        except OSError:
+            continue
+        if _ORIGINAL_SPEEDS_PAT.search(data):
+            new_data = _ORIGINAL_SPEEDS_PAT.sub(_EXTENDED_SPEEDS, data)
+            try:
+                open(fpath, "w").write(new_data)
+                logger.info(f"Patched playback speeds in {fname}: [0.5,1,1.5,2] -> [0.5,1,1.5,2,2.5,3,3.5,4]")
+                patched = True
+            except OSError as e:
+                logger.warning(f"Cannot write {fpath}: {e}")
+        elif _EXTENDED_SPEEDS in data:
+            logger.info(f"Playback speeds already patched in {fname}")
+            patched = True
+
+    if not patched:
+        logger.warning("Could not patch Gradio playback speeds — pattern not found in any JS asset")
+    return patched
 
 
 class ColoredFormatter(logging.Formatter):
@@ -128,7 +170,7 @@ def preview_stress(text, accent_method, normalizer_method):
 
 def tts_generate(text, speaker, sample_rate, accent_method, device, audio_format, normalizer_method, progress=gr.Progress()):
     if not text or not text.strip():
-        return None, "Empty text", text
+        return None, "Empty text", text, ""
 
     text = normalize_text(text, normalizer_method)
 
@@ -185,12 +227,12 @@ def tts_generate(text, speaker, sample_rate, accent_method, device, audio_format
         error_msg = f"Error: {str(e)}"
         logger.error(error_msg)
         logger.error(traceback.format_exc())
-        return None, error_msg, text
+        return None, error_msg, text, ""
 
 def create_app():
     with gr.Blocks(title="Silero TTS") as demo:
         gr.Markdown("# Silero TTS - Russian")
-        gr.Markdown("Speed slider controls audio playback rate (0.5x = slow, 4x = fast)")
+        gr.Markdown("Playback speed button cycles: 0.5x → 1x → 1.5x → 2x → 2.5x → 3x → 3.5x → 4x")
 
         with gr.Row():
             with gr.Column(scale=3):
@@ -258,6 +300,7 @@ def preload_model():
 
 if __name__ == "__main__":
     _cleanup_old_temp_files()
+    _patch_gradio_playback_speeds()
     preload_model()
     logger.info(f"Starting Silero TTS app - Model: {config.model_id}, Device: {config.device}")
     app = create_app()
