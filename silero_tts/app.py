@@ -3,6 +3,7 @@ import logging
 from .config import TTSConfig, AVAILABLE_SAMPLE_RATES, DEFAULT_TEXT
 from .model_loader import load_model
 from .audio_utils import generate_audio, generate_long_text, save_audio, apply_stress
+from .silence_trimmer import trim_silence
 import tempfile
 import os
 import atexit
@@ -168,9 +169,9 @@ def preview_stress(text, accent_method, normalizer_method):
     except Exception as e:
         return text, f"Error: {str(e)}"
 
-def tts_generate(text, speaker, sample_rate, accent_method, device, audio_format, normalizer_method, progress=gr.Progress()):
+def tts_generate(text, speaker, sample_rate, accent_method, device, audio_format, normalizer_method, remove_silence, silence_threshold, min_leading_dur, min_trailing_dur, min_gap_dur, keep_gap_dur, progress=gr.Progress()):
     if not text or not text.strip():
-        return None, "Empty text", text, ""
+        return None, "Empty text", text, "", None, ""
 
     text = normalize_text(text, normalizer_method)
 
@@ -220,14 +221,43 @@ def tts_generate(text, speaker, sample_rate, accent_method, device, audio_format
         save_audio(audio, int(sample_rate), path, fmt=audio_format)
         logger.info(f"Saved to {path}")
         _delayed_cleanup(path)
-        progress(1.0, desc="Complete!")
-        return path, f"OK: {len(audio)} samples", processed_text, duration_str
+
+        if remove_silence:
+            progress(0.93, desc="Trimming silence...")
+            trimmed_audio = trim_silence(audio, int(sample_rate), threshold_db=silence_threshold, min_leading_dur=min_leading_dur, min_trailing_dur=min_trailing_dur, min_gap_dur=min_gap_dur, keep_gap_dur=keep_gap_dur)
+            trimmed_duration_seconds = len(trimmed_audio) / int(sample_rate)
+            trimmed_duration_str = f"{int(trimmed_duration_seconds // 3600):02d}:{int((trimmed_duration_seconds % 3600) // 60):02d}:{int(trimmed_duration_seconds % 60):02d}"
+            fd2, trimmed_path = tempfile.mkstemp(suffix=suffix)
+            os.close(fd2)
+            _temp_files.append(trimmed_path)
+            save_audio(trimmed_audio, int(sample_rate), trimmed_path, fmt=audio_format)
+            logger.info(f"Trimmed saved to {trimmed_path}")
+            _delayed_cleanup(trimmed_path)
+            progress(1.0, desc="Complete!")
+            return (
+                path,
+                f"OK: {len(audio)} samples",
+                processed_text,
+                duration_str,
+                trimmed_path,
+                trimmed_duration_str,
+            )
+        else:
+            progress(1.0, desc="Complete!")
+            return (
+                path,
+                f"OK: {len(audio)} samples",
+                processed_text,
+                duration_str,
+                None,
+                "",
+            )
     except Exception as e:
         import traceback
         error_msg = f"Error: {str(e)}"
         logger.error(error_msg)
         logger.error(traceback.format_exc())
-        return None, error_msg, text, ""
+        return None, error_msg, text, "", None, ""
 
 def create_app():
     with gr.Blocks(title="Silero TTS") as demo:
@@ -262,19 +292,34 @@ def create_app():
                 status = gr.Textbox(label="Status", interactive=False, lines=2)
 
             with gr.Column(scale=2):
+                remove_silence_cb = gr.Checkbox(value=True, label="Remove silence pauses")
+
+                with gr.Accordion("Trim parameters", open=False):
+                    silence_threshold = gr.Slider(-80, -20, value=-50, step=1, label="Silence threshold (dB)")
+                    with gr.Row():
+                        min_leading_dur = gr.Slider(0, 1.0, value=0.1, step=0.05, label="Min leading speech (s)")
+                        min_trailing_dur = gr.Slider(0, 2.0, value=0.2, step=0.05, label="Min trailing silence (s)")
+                    with gr.Row():
+                        min_gap_dur = gr.Slider(0, 3.0, value=0.3, step=0.05, label="Min internal gap (s)")
+                        keep_gap_dur = gr.Slider(0, 1.0, value=0.1, step=0.05, label="Keep gap after trim (s)")
+
+                gr.Markdown("### Original")
                 audio_output = gr.Audio(label="Generated Audio", type="filepath")
                 duration_output = gr.Textbox(label="Duration", interactive=False)
-        
+
+                trimmed_audio_output = gr.Audio(label="Trimmed Audio (silence removed)", type="filepath")
+                trimmed_duration_output = gr.Textbox(label="Duration (Trimmed)", interactive=False)
+
         preview_btn.click(
             fn=preview_stress,
             inputs=[text_input, accent_dropdown, normalizer_dropdown],
             outputs=[processed_text_output, status]
         )
-        
+
         generate_btn.click(
             fn=tts_generate,
-            inputs=[text_input, speaker_dropdown, sample_rate_dropdown, accent_dropdown, device_dropdown, format_dropdown, normalizer_dropdown],
-            outputs=[audio_output, status, processed_text_output, duration_output]
+            inputs=[text_input, speaker_dropdown, sample_rate_dropdown, accent_dropdown, device_dropdown, format_dropdown, normalizer_dropdown, remove_silence_cb, silence_threshold, min_leading_dur, min_trailing_dur, min_gap_dur, keep_gap_dur],
+            outputs=[audio_output, status, processed_text_output, duration_output, trimmed_audio_output, trimmed_duration_output]
         )
     return demo
 
