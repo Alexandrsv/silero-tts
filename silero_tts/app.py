@@ -2,14 +2,9 @@ import gradio as gr
 import logging
 from .config import TTSConfig, AVAILABLE_SAMPLE_RATES, DEFAULT_TEXT
 from .model_loader import load_model
-from .audio_utils import generate_audio, generate_long_text, save_audio, apply_stress
+from .audio_utils import generate_audio, generate_long_text, apply_stress
 from .silence_trimmer import trim_silence
-import tempfile
 import os
-import atexit
-import glob
-import threading
-import time
 import resource
 import re
 
@@ -95,31 +90,6 @@ for logger_name in ["httpx", "gradio"]:
 
 logger = logging.getLogger(__name__)
 
-_temp_files = []
-
-def _cleanup_temp_files():
-    """Clean up tracked temp files."""
-    for f in list(_temp_files):
-        try:
-            os.unlink(f)
-        except OSError:
-            pass
-    _temp_files.clear()
-
-def _delayed_cleanup(path, delay=30):
-    """Delete file after delay (enough time for Gradio to read it)."""
-    def _clean():
-        time.sleep(delay)
-        try:
-            os.unlink(path)
-        except OSError:
-            pass
-        if path in _temp_files:
-            _temp_files.remove(path)
-    threading.Thread(target=_clean, daemon=True).start()
-
-atexit.register(_cleanup_temp_files)
-
 config = TTSConfig()
 
 MAX_CHARS = 140
@@ -169,7 +139,7 @@ def preview_stress(text, accent_method, normalizer_method):
     except Exception as e:
         return text, f"Error: {str(e)}"
 
-def tts_generate(text, speaker, sample_rate, accent_method, device, audio_format, normalizer_method, remove_silence, silence_threshold, min_leading_dur, min_trailing_dur, min_gap_dur, keep_gap_dur, progress=gr.Progress()):
+def tts_generate(text, speaker, sample_rate, accent_method, device, normalizer_method, remove_silence, silence_threshold, min_leading_dur, min_trailing_dur, min_gap_dur, keep_gap_dur, progress=gr.Progress()):
     if not text or not text.strip():
         return None, "Empty text", text, "", None, ""
 
@@ -211,41 +181,25 @@ def tts_generate(text, speaker, sample_rate, accent_method, device, audio_format
         # Compute duration
         duration_seconds = len(audio) / int(sample_rate)
         duration_str = f"{int(duration_seconds // 3600):02d}:{int((duration_seconds % 3600) // 60):02d}:{int(duration_seconds % 60):02d}"
-        
-        # Progress for saving
-        progress(0.9, desc="Saving audio...")
-        suffix = ".mp3" if audio_format == "mp3" else ".wav"
-        fd, path = tempfile.mkstemp(suffix=suffix)
-        os.close(fd)
-        _temp_files.append(path)
-        save_audio(audio, int(sample_rate), path, fmt=audio_format)
-        logger.info(f"Saved to {path}")
-        _delayed_cleanup(path)
 
         if remove_silence:
             progress(0.93, desc="Trimming silence...")
             trimmed_audio = trim_silence(audio, int(sample_rate), threshold_db=silence_threshold, min_leading_dur=min_leading_dur, min_trailing_dur=min_trailing_dur, min_gap_dur=min_gap_dur, keep_gap_dur=keep_gap_dur)
             trimmed_duration_seconds = len(trimmed_audio) / int(sample_rate)
             trimmed_duration_str = f"{int(trimmed_duration_seconds // 3600):02d}:{int((trimmed_duration_seconds % 3600) // 60):02d}:{int(trimmed_duration_seconds % 60):02d}"
-            fd2, trimmed_path = tempfile.mkstemp(suffix=suffix)
-            os.close(fd2)
-            _temp_files.append(trimmed_path)
-            save_audio(trimmed_audio, int(sample_rate), trimmed_path, fmt=audio_format)
-            logger.info(f"Trimmed saved to {trimmed_path}")
-            _delayed_cleanup(trimmed_path)
             progress(1.0, desc="Complete!")
             return (
-                path,
+                (int(sample_rate), audio.cpu().numpy()),
                 f"OK: {len(audio)} samples",
                 processed_text,
                 duration_str,
-                trimmed_path,
+                (int(sample_rate), trimmed_audio.cpu().numpy()),
                 trimmed_duration_str,
             )
         else:
             progress(1.0, desc="Complete!")
             return (
-                path,
+                (int(sample_rate), audio.cpu().numpy()),
                 f"OK: {len(audio)} samples",
                 processed_text,
                 duration_str,
@@ -282,7 +236,7 @@ def create_app():
 
                     with gr.Column(scale=1):
                         gr.Markdown("### Output")
-                        format_dropdown = gr.Dropdown(choices=["wav", "mp3"], value="mp3", label="Audio Format", container=False)
+                        gr.Markdown("Format: MP3")
 
                 with gr.Row():
                     preview_btn = gr.Button("Preview Stress", variant="secondary", scale=1)
@@ -304,10 +258,10 @@ def create_app():
                         keep_gap_dur = gr.Slider(0, 1.0, value=0.1, step=0.05, label="Keep gap after trim (s)")
 
                 gr.Markdown("### Original")
-                audio_output = gr.Audio(label="Generated Audio", type="filepath")
+                audio_output = gr.Audio(label="Generated Audio", type="numpy", format="mp3")
                 duration_output = gr.Textbox(label="Duration", interactive=False)
 
-                trimmed_audio_output = gr.Audio(label="Trimmed Audio (silence removed)", type="filepath")
+                trimmed_audio_output = gr.Audio(label="Trimmed Audio (silence removed)", type="numpy", format="mp3")
                 trimmed_duration_output = gr.Textbox(label="Duration (Trimmed)", interactive=False)
 
         preview_btn.click(
@@ -318,21 +272,10 @@ def create_app():
 
         generate_btn.click(
             fn=tts_generate,
-            inputs=[text_input, speaker_dropdown, sample_rate_dropdown, accent_dropdown, device_dropdown, format_dropdown, normalizer_dropdown, remove_silence_cb, silence_threshold, min_leading_dur, min_trailing_dur, min_gap_dur, keep_gap_dur],
+            inputs=[text_input, speaker_dropdown, sample_rate_dropdown, accent_dropdown, device_dropdown, normalizer_dropdown, remove_silence_cb, silence_threshold, min_leading_dur, min_trailing_dur, min_gap_dur, keep_gap_dur],
             outputs=[audio_output, status, processed_text_output, duration_output, trimmed_audio_output, trimmed_duration_output]
         )
     return demo
-
-def _cleanup_old_temp_files():
-    """Clean up old temp files from previous runs."""
-    patterns = ['/tmp/tmp*.mp3', '/tmp/tmp*.wav']
-    for pattern in patterns:
-        for f in glob.glob(pattern):
-            try:
-                if time.time() - os.path.getmtime(f) > 3600:
-                    os.unlink(f)
-            except OSError:
-                pass
 
 def preload_model():
     """Preload model at startup to avoid loading during first request."""
@@ -344,7 +287,6 @@ def preload_model():
         logger.error(f"Failed to preload model: {e}")
 
 if __name__ == "__main__":
-    _cleanup_old_temp_files()
     _patch_gradio_playback_speeds()
     preload_model()
     logger.info(f"Starting Silero TTS app - Model: {config.model_id}, Device: {config.device}")
